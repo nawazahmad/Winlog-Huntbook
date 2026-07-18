@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Winlog Huntbook // Windows Event ID Reference &amp; Query Builder</title>
+<style>
+  :root{
+    --bg:#0a0e0c;
+    --bg2:#0f1512;
+    --panel:#111a15;
+    --panel2:#0d1512;
+    --border:#1e2e26;
+    --border-bright:#2c4536;
+    --text:#c9e8d4;
+    --text-dim:#6f8b7c;
+    --text-dimmer:#4a5f53;
+    --green:#39ff88;
+    --green-dim:#1f8a4c;
+    --amber:#ffb454;
+    --red:#ff5f56;
+    --blue:#5fc6ff;
+    --purple:#c792ea;
+    --mono: "SF Mono","Consolas","Menlo","Courier New",monospace;
+  }
+  *{box-sizing:border-box;}
+  body{
+    background:
+      radial-gradient(circle at 15% 0%, rgba(57,255,136,0.05), transparent 40%),
+      radial-gradient(circle at 85% 100%, rgba(95,198,255,0.04), transparent 45%),
+      var(--bg);
+    color:var(--text);
+    font-family:var(--mono);
+    margin:0;
+    padding:0;
+    min-height:100vh;
+  }
+  ::selection{ background:var(--green-dim); color:#fff; }
+  a{color:var(--blue);}
+  .scanlines{
+    pointer-events:none;
+    position:fixed; inset:0;
+    background:repeating-linear-gradient(0deg, rgba(255,255,255,0.012) 0px, rgba(255,255,255,0.012) 1px, transparent 1px, transparent 3px);
+    z-index:1000;
+  }
+  header{
+    border-bottom:1px solid var(--border-bright);
+    padding:18px 24px 14px;
+    background:linear-gradient(180deg, rgba(57,255,136,0.04), transparent);
+    display:flex; justify-content:space-between; align-items:flex-end; flex-wrap:wrap; gap:10px;
+  }
+  header .brand{display:flex; flex-direction:column; gap:4px;}
+  .brand .tag{
+    font-size:10px; letter-spacing:3px; color:var(--green); text-transform:uppercase;
+  }
+  .brand h1{
+    margin:0; font-size:20px; font-weight:600; color:var(--text);
+    letter-spacing:0.5px;
+  }
+  .brand h1 span{color:var(--green);}
+  .brand .sub{font-size:11px; color:var(--text-dim); margin-top:2px;}
+  header .meta{font-size:10px; color:var(--text-dimmer); text-align:right; line-height:1.6;}
+  .blink{animation:blink 1.4s steps(2,start) infinite;}
+  @keyframes blink{ to{ visibility:hidden; } }
+
+  .wrap{max-width:1400px; margin:0 auto; padding:20px 24px 60px;}
+
+  .toolbar{
+    display:flex; gap:10px; flex-wrap:wrap; align-items:center;
+    background:var(--panel); border:1px solid var(--border); border-radius:6px;
+    padding:12px; margin-bottom:14px;
+  }
+  .toolbar input[type=text]{
+    flex:1 1 240px;
+    background:var(--bg2); border:1px solid var(--border-bright); color:var(--text);
+    padding:9px 10px; border-radius:4px; font-family:var(--mono); font-size:13px;
+  }
+  .toolbar input[type=text]:focus{ outline:none; border-color:var(--green-dim); box-shadow:0 0 0 2px rgba(57,255,136,0.08); }
+  select{
+    background:var(--bg2); border:1px solid var(--border-bright); color:var(--text);
+    padding:9px 10px; border-radius:4px; font-family:var(--mono); font-size:12px;
+  }
+  .btn{
+    background:transparent; border:1px solid var(--border-bright); color:var(--text);
+    padding:9px 14px; border-radius:4px; font-family:var(--mono); font-size:12px; cursor:pointer;
+    transition:all .12s ease; white-space:nowrap;
+  }
+  .btn:hover{ border-color:var(--green); color:var(--green); background:rgba(57,255,136,0.06); }
+  .btn.primary{ border-color:var(--green-dim); color:var(--green); }
+  .btn.primary:hover{ background:rgba(57,255,136,0.12); }
+  .btn.danger:hover{ border-color:var(--red); color:var(--red); background:rgba(255,95,86,0.08); }
+  .btn:disabled{ opacity:0.35; cursor:not-allowed; }
+  .btn:disabled:hover{ border-color:var(--border-bright); color:var(--text); background:transparent; }
+
+  .catchips{ display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px; }
+  .chip{
+    font-size:10.5px; padding:5px 10px; border-radius:999px; border:1px solid var(--border-bright);
+    color:var(--text-dim); cursor:pointer; user-select:none; transition:all .12s ease;
+  }
+  .chip:hover{ color:var(--text); border-color:var(--text-dim); }
+  .chip.active{ background:var(--green-dim); border-color:var(--green-dim); color:#04140a; font-weight:600; }
+
+  .stats-row{ display:flex; gap:10px; font-size:10.5px; color:var(--text-dimmer); margin-bottom:14px; flex-wrap:wrap; }
+  .stats-row b{ color:var(--green); }
+
+  .grid{ display:grid; grid-template-columns: 1fr; gap:10px; margin-bottom:20px; }
+  .card{
+    background:var(--panel); border:1px solid var(--border); border-radius:6px; padding:0;
+    overflow:hidden;
+  }
+  .card-head{
+    display:flex; align-items:center; gap:12px; padding:12px 14px; cursor:pointer;
+    transition:background .1s ease;
+  }
+  .card-head:hover{ background:rgba(57,255,136,0.03); }
+  .card.selected .card-head{ background:rgba(57,255,136,0.06); border-left:3px solid var(--green); padding-left:11px; }
+  .evtid{
+    font-size:16px; font-weight:700; color:var(--green); min-width:52px;
+    text-shadow:0 0 12px rgba(57,255,136,0.25);
+  }
+  .cb{
+    width:15px; height:15px; accent-color:var(--green); cursor:pointer; flex-shrink:0;
+  }
+  .card-title{ flex:1; min-width:0; }
+  .card-title .name{ font-size:13px; color:var(--text); font-weight:600; }
+  .card-title .logsrc{ font-size:10px; color:var(--text-dim); margin-top:2px; }
+  .tags{ display:flex; gap:5px; flex-wrap:wrap; justify-content:flex-end; max-width:340px; }
+  .tag-pill{
+    font-size:9.5px; padding:3px 7px; border-radius:3px; border:1px solid var(--border-bright);
+    color:var(--text-dim); white-space:nowrap;
+  }
+  .tag-pill.cat{ color:var(--amber); border-color:rgba(255,180,84,0.3); }
+  .tag-pill.attack{ color:var(--purple); border-color:rgba(199,146,234,0.3); }
+  .caret{ color:var(--text-dimmer); font-size:11px; transition:transform .15s ease; flex-shrink:0; }
+  .card.open .caret{ transform:rotate(90deg); color:var(--green); }
+
+  .card-body{ display:none; padding:0 14px 16px 14px; border-top:1px solid var(--border); }
+  .card.open .card-body{ display:block; }
+  .desc{ font-size:12.5px; color:var(--text); line-height:1.6; margin:12px 0; }
+  .fieldrow{ display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; }
+  .fieldrow .fld{
+    font-size:10.5px; background:var(--bg2); border:1px solid var(--border); color:var(--blue);
+    padding:3px 8px; border-radius:3px;
+  }
+  .querybox{
+    background:var(--bg2); border:1px solid var(--border); border-radius:4px; padding:10px 12px;
+    margin-top:8px; position:relative;
+  }
+  .querybox .qlabel{ font-size:9.5px; color:var(--text-dimmer); letter-spacing:1.5px; margin-bottom:6px; text-transform:uppercase; }
+  .querybox pre{ margin:0; font-size:11.5px; color:var(--green); white-space:pre-wrap; word-break:break-word; line-height:1.5; }
+  .copy-mini{
+    position:absolute; top:8px; right:8px; font-size:9px; padding:3px 8px;
+    background:var(--panel); border:1px solid var(--border-bright); color:var(--text-dim);
+    border-radius:3px; cursor:pointer;
+  }
+  .copy-mini:hover{ color:var(--green); border-color:var(--green-dim); }
+  .qgrid{ display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:8px; }
+  @media (max-width:800px){ .qgrid{ grid-template-columns:1fr; } .tags{ max-width:none; justify-content:flex-start; } .card-head{ flex-wrap:wrap; } }
+
+  .scenario-section{ margin-bottom:16px; }
+  .scenario-section h2{
+    margin:0 0 4px; font-size:11px; letter-spacing:2px; color:var(--amber); text-transform:uppercase;
+  }
+  .scenario-section .sub{ font-size:11px; color:var(--text-dimmer); margin-bottom:10px; }
+  .scenario-grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(230px,1fr)); gap:8px; }
+  .scenario-card{
+    background:var(--panel); border:1px solid var(--border); border-radius:6px;
+    padding:11px 12px; cursor:pointer; transition:all .12s ease; text-align:left;
+    font-family:var(--mono); color:var(--text);
+  }
+  .scenario-card:hover{ border-color:var(--amber); background:rgba(255,180,84,0.05); }
+  .scenario-card.active{ border-color:var(--amber); background:rgba(255,180,84,0.1); box-shadow:0 0 0 1px rgba(255,180,84,0.25); }
+  .scenario-card .stitle{
+    font-size:12.5px; font-weight:700; color:var(--amber); display:flex; align-items:center; justify-content:space-between; gap:6px;
+  }
+  .scenario-card.active .stitle::after{ content:"\2713"; color:var(--amber); font-weight:700; }
+  .scenario-card .sdesc{ font-size:10.5px; color:var(--text-dim); margin-top:5px; line-height:1.5; }
+  .scenario-card .sids{ font-size:9.5px; color:var(--text-dimmer); margin-top:7px; letter-spacing:0.5px; }
+
+  .builder{
+    background:var(--panel2); border:1px solid var(--border-bright); border-radius:6px;
+    padding:16px; margin-bottom:20px; position:sticky; top:14px; z-index:50;
+  }
+  .builder h2{ margin:0 0 10px; font-size:12px; letter-spacing:2px; color:var(--green); text-transform:uppercase; display:flex; align-items:center; gap:8px; justify-content:space-between; }
+  .builder h2 .count{ color:var(--text-dim); font-weight:400; letter-spacing:0; text-transform:none; font-size:11px; }
+  .builder-empty{ font-size:12px; color:var(--text-dimmer); padding:6px 0; }
+  .builder-controls{ display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap; align-items:center; }
+  .builder-controls label{ font-size:10.5px; color:var(--text-dim); }
+  .selected-ids{ display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px; }
+  .selected-ids .sid{
+    font-size:11px; background:rgba(57,255,136,0.08); border:1px solid var(--green-dim); color:var(--green);
+    padding:3px 8px; border-radius:3px; display:flex; align-items:center; gap:6px;
+  }
+  .selected-ids .sid button{ background:none; border:none; color:var(--text-dim); cursor:pointer; font-family:var(--mono); font-size:11px; padding:0; }
+  .selected-ids .sid button:hover{ color:var(--red); }
+
+  footer{ text-align:center; padding:24px; font-size:10px; color:var(--text-dimmer); border-top:1px solid var(--border); }
+  footer .signature{ color:var(--green-dim); letter-spacing:2px; margin-top:6px; }
+
+  .toast{
+    position:fixed; bottom:20px; left:50%; transform:translateX(-50%) translateY(20px);
+    background:var(--panel); border:1px solid var(--green-dim); color:var(--green);
+    padding:10px 18px; border-radius:5px; font-size:12px; opacity:0; pointer-events:none;
+    transition:all .25s ease; z-index:2000;
+  }
+  .toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+<div class="scanlines"></div>
+
+<header>
+  <div class="brand">
+    <div class="tag">Detect. Hunt. Respond.</div>
+    <h1><span>Winlog</span> Huntbook</h1>
+    <div class="sub">Windows Event ID reference, prebuilt hunt scenarios, and multi-platform query builder</div>
+  </div>
+  <div class="meta">
+    STATUS: <span style="color:var(--green)">ONLINE</span> <span class="blink">_</span><br>
+    <span id="evtCountMeta">0</span> EVENT IDS INDEXED
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="builder" id="builder">
+    <h2>Query Builder <span class="count" id="builderCount">0 selected</span></h2>
+    <div id="builderEmpty" class="builder-empty">Check event IDs below to build a combined hunt query across SPL, KQL, and Elastic DSL.</div>
+    <div id="selectedIds" class="selected-ids"></div>
+    <div id="builderOutput" style="display:none;">
+      <div class="builder-controls">
+        <label><input type="radio" name="kqltable" value="auto" checked> Auto table per source</label>
+        <label><input type="radio" name="kqltable" value="SecurityEvent"> Force SecurityEvent</label>
+        <label><input type="radio" name="kqltable" value="Event"> Force Event (Sysmon)</label>
+      </div>
+      <div class="qgrid">
+        <div class="querybox">
+          <div class="qlabel">Splunk SPL</div>
+          <button class="copy-mini" onclick="copyText('splOut')">copy</button>
+          <pre id="splOut"></pre>
+        </div>
+        <div class="querybox">
+          <div class="qlabel">Microsoft Sentinel / KQL</div>
+          <button class="copy-mini" onclick="copyText('kqlOut')">copy</button>
+          <pre id="kqlOut"></pre>
+        </div>
+        <div class="querybox">
+          <div class="qlabel">Elastic / KQL (Lucene-style)</div>
+          <button class="copy-mini" onclick="copyText('elasticOut')">copy</button>
+          <pre id="elasticOut"></pre>
+        </div>
+        <div class="querybox">
+          <div class="qlabel">Tanium / Live Response filter</div>
+          <button class="copy-mini" onclick="copyText('taniumOut')">copy</button>
+          <pre id="taniumOut"></pre>
+        </div>
+      </div>
+      <div class="builder-controls" style="margin-top:12px;">
+        <button class="btn" onclick="exportSelected('json')">Export selection (JSON)</button>
+        <button class="btn" onclick="exportSelected('md')">Export selection (Markdown)</button>
+        <button class="btn danger" onclick="clearSelection()">Clear selection</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="scenario-section">
+    <h2>Hunt Scenario Bundles</h2>
+    <div class="sub">One click loads a curated set of event IDs into the query builder above for a known attack pattern.</div>
+    <div class="scenario-grid" id="scenarioGrid"></div>
+  </div>
+
+  <div class="toolbar">
+    <input type="text" id="searchBox" type="text" placeholder="Search by Event ID, name, keyword, or ATT&CK technique (e.g. 4624, PowerShell, T1053)...">
+    <select id="logFilter">
+      <option value="">All log sources</option>
+    </select>
+    <button class="btn" id="selectAllVisible">Select all visible</button>
+    <button class="btn" id="resetFilters">Reset filters</button>
+  </div>
+
+  <div class="catchips" id="catChips"></div>
+
+  <div class="stats-row">
+    Showing <b id="shownCount">0</b> of <b id="totalCount">0</b> event IDs &middot;
+    <span id="selCountRow">0</span> selected for query builder
+  </div>
+
+  <div class="grid" id="cardGrid"></div>
+</div>
+
+<footer>
+  Self-contained &middot; client-side only &middot; no data leaves this page &middot; export freely for playbooks, wikis, or SIEM onboarding docs
+  <div class="signature">DETECT. HUNT. RESPOND.</div>
+</footer>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============================================================
+   EVENT ID DATASET
+   fields: id, log, name, cat, desc, fields[], attack[], kqlTable
+   ============================================================ */
+const DATA = [
+  // ---- AUTHENTICATION ----
+  {id:4624, log:"Security", name:"An account was successfully logged on", cat:"Authentication", attack:["T1078"], desc:"Baseline logon event. Pivot on LogonType (3=network,10=RDP,2=interactive,5=service) and check for anomalous source IPs, off-hours logons, or service accounts logging on interactively.", fields:["TargetUserName","LogonType","IpAddress","WorkstationName","AuthenticationPackageName"], kqlTable:"SecurityEvent"},
+  {id:4625, log:"Security", name:"An account failed to log on", cat:"Authentication", attack:["T1110"], desc:"Failed logon. High volume from one source or against one/many accounts indicates brute force or password spray. Correlate with 4624 for successful follow-on compromise.", fields:["TargetUserName","LogonType","IpAddress","FailureReason","Status"], kqlTable:"SecurityEvent"},
+  {id:4634, log:"Security", name:"An account was logged off", cat:"Authentication", attack:["T1078"], desc:"Session close. Useful for building session duration timelines when paired with 4624/4647.", fields:["TargetUserName","LogonType"], kqlTable:"SecurityEvent"},
+  {id:4647, log:"Security", name:"User initiated logoff", cat:"Authentication", attack:["T1078"], desc:"Explicit user-driven logoff, distinct from 4634 (system-driven). Useful to distinguish intentional session end from termination/timeout.", fields:["TargetUserName"], kqlTable:"SecurityEvent"},
+  {id:4648, log:"Security", name:"A logon was attempted using explicit credentials", cat:"Authentication", attack:["T1078","T1550"], desc:"RunAs / explicit credential use — a top signal for lateral movement, credential testing, or pass-the-hash follow-up. Watch for service accounts using this pattern from workstations.", fields:["SubjectUserName","TargetUserName","TargetServerName","IpAddress"], kqlTable:"SecurityEvent"},
+  {id:4672, log:"Security", name:"Special privileges assigned to new logon", cat:"Privilege Escalation", attack:["T1078.003"], desc:"Fires when SeDebugPrivilege, SeBackupPrivilege, or similar admin-equivalent rights are assigned at logon. Baseline expected admin logons; unexpected accounts here warrant investigation.", fields:["SubjectUserName","PrivilegeList"], kqlTable:"SecurityEvent"},
+  {id:4768, log:"Security", name:"A Kerberos authentication ticket (TGT) was requested", cat:"Authentication", attack:["T1558"], desc:"Kerberos TGT request. Unusual encryption types (RC4 on a modern domain) or requests for privileged accounts from unexpected hosts can indicate AS-REP roasting or Kerberoasting prep.", fields:["TargetUserName","IpAddress","TicketEncryptionType","Status"], kqlTable:"SecurityEvent"},
+  {id:4769, log:"Security", name:"A Kerberos service ticket was requested", cat:"Authentication", attack:["T1558.003"], desc:"Kerberos TS request — the core signal for Kerberoasting. Look for RC4 (0x17) encryption on service accounts, high volume of distinct SPNs requested by one user in a short window.", fields:["TargetUserName","ServiceName","TicketEncryptionType","IpAddress"], kqlTable:"SecurityEvent"},
+  {id:4771, log:"Security", name:"Kerberos pre-authentication failed", cat:"Authentication", attack:["T1110","T1558.004"], desc:"Pairs with 4768 failures; repeated failures across many accounts without corresponding 4625 events can indicate AS-REP roasting sweeps.", fields:["TargetUserName","IpAddress","FailureCode"], kqlTable:"SecurityEvent"},
+  {id:4776, log:"Security", name:"The domain controller attempted to validate credentials (NTLM)", cat:"Authentication", attack:["T1110","T1557"], desc:"NTLM authentication attempt at the DC. High failure volume signals brute force; unexpected NTLM use on a Kerberos-preferred network can indicate downgrade or relay activity.", fields:["TargetUserName","Workstation","Status"], kqlTable:"SecurityEvent"},
+  {id:4778, log:"Security", name:"A session was reconnected to a Window Station", cat:"Remote Access", attack:["T1021.001"], desc:"RDP session reconnection. Useful for tracking persistent/disconnected RDP sessions being resumed, common in RDP hijacking scenarios.", fields:["AccountName","ClientName","ClientAddress"], kqlTable:"SecurityEvent"},
+  {id:4779, log:"Security", name:"A session was disconnected from a Window Station", cat:"Remote Access", attack:["T1021.001"], desc:"RDP session disconnect (not logoff) — session remains active in background. Pair with 4778 to timeline RDP hijack windows.", fields:["AccountName","ClientName","ClientAddress"], kqlTable:"SecurityEvent"},
+
+  // ---- ACCOUNT MANAGEMENT ----
+  {id:4720, log:"Security", name:"A user account was created", cat:"Account Management", attack:["T1136.001"], desc:"New local/domain account creation. Correlate creator (SubjectUserName) against expected admin workflows; off-hours or non-IT-created accounts are high priority.", fields:["TargetUserName","SubjectUserName","SamAccountName"], kqlTable:"SecurityEvent"},
+  {id:4722, log:"Security", name:"A user account was enabled", cat:"Account Management", attack:["T1098"], desc:"Previously disabled account re-enabled. Watch for stale/service accounts being reactivated outside change windows.", fields:["TargetUserName","SubjectUserName"], kqlTable:"SecurityEvent"},
+  {id:4724, log:"Security", name:"An attempt was made to reset an account's password", cat:"Account Management", attack:["T1098"], desc:"Password reset performed by another account (not self-service). Frequent target for account-takeover follow-through after initial compromise.", fields:["TargetUserName","SubjectUserName"], kqlTable:"SecurityEvent"},
+  {id:4725, log:"Security", name:"A user account was disabled", cat:"Account Management", attack:["T1531"], desc:"Account disablement — can indicate legitimate offboarding or an attacker disabling detection/response accounts to hinder IR.", fields:["TargetUserName","SubjectUserName"], kqlTable:"SecurityEvent"},
+  {id:4726, log:"Security", name:"A user account was deleted", cat:"Account Management", attack:["T1531"], desc:"Account deletion. During active incidents, unexpected deletions may indicate anti-forensic cleanup of attacker-created accounts.", fields:["TargetUserName","SubjectUserName"], kqlTable:"SecurityEvent"},
+  {id:4728, log:"Security", name:"A member was added to a security-enabled global group", cat:"Privilege Escalation", attack:["T1098"], desc:"Group membership change (global group, e.g. Domain Admins). One of the highest-value events for detecting privilege escalation via group manipulation.", fields:["TargetUserName","MemberName","SubjectUserName"], kqlTable:"SecurityEvent"},
+  {id:4732, log:"Security", name:"A member was added to a security-enabled local group", cat:"Privilege Escalation", attack:["T1098","T1136"], desc:"Local group change, commonly abused to add an account to local Administrators for persistence on a single host.", fields:["TargetUserName","MemberName","SubjectUserName"], kqlTable:"SecurityEvent"},
+  {id:4735, log:"Security", name:"A security-enabled local group was changed", cat:"Account Management", attack:["T1098"], desc:"Group attribute/property change (not membership). Useful for detecting tampering with group scope or description used to evade detection rules.", fields:["TargetUserName","SubjectUserName"], kqlTable:"SecurityEvent"},
+  {id:4738, log:"Security", name:"A user account was changed", cat:"Account Management", attack:["T1098"], desc:"Broad account attribute change event — SPN additions (Kerberoasting setup), UAC flag changes, or logon script modifications all surface here. Inspect the full field list, not just the account name.", fields:["TargetUserName","SubjectUserName","UserAccountControl"], kqlTable:"SecurityEvent"},
+  {id:4740, log:"Security", name:"A user account was locked out", cat:"Authentication", attack:["T1110"], desc:"Account lockout — usually a byproduct of brute force or a misconfigured service hammering a stale credential. Cross-reference source host in the CallerComputerName field.", fields:["TargetUserName","CallerComputerName"], kqlTable:"SecurityEvent"},
+  {id:4756, log:"Security", name:"A member was added to a security-enabled universal group", cat:"Privilege Escalation", attack:["T1098"], desc:"Universal group membership change — relevant in multi-domain forests where universal groups (e.g. Enterprise Admins) grant forest-wide rights.", fields:["TargetUserName","MemberName"], kqlTable:"SecurityEvent"},
+  {id:4767, log:"Security", name:"A user account was unlocked", cat:"Account Management", attack:["T1098"], desc:"Account unlock following lockout. Confirm the unlocking party (SubjectUserName) is an authorized help desk/IT account.", fields:["TargetUserName","SubjectUserName"], kqlTable:"SecurityEvent"},
+
+  // ---- PROCESS / EXECUTION ----
+  {id:4688, log:"Security", name:"A new process has been created", cat:"Process Execution", attack:["T1059"], desc:"Native Windows process creation logging (requires 'Audit Process Creation' + command-line auditing enabled). Foundational event for execution hunting; enrich with parent process for lineage analysis.", fields:["NewProcessName","CommandLine","ParentProcessName","SubjectUserName"], kqlTable:"SecurityEvent"},
+  {id:4689, log:"Security", name:"A process has exited", cat:"Process Execution", attack:["T1059"], desc:"Process termination. Useful for calculating dwell time of a suspicious process and confirming a kill action took effect.", fields:["ProcessName","ExitStatus"], kqlTable:"SecurityEvent"},
+  {id:1, log:"Sysmon", name:"Process creation", cat:"Process Execution", attack:["T1059"], desc:"Sysmon's richer equivalent of 4688 — includes hashes, full command line, parent chain, and integrity level by default. Primary event for LOLBin and execution-chain hunting.", fields:["Image","CommandLine","ParentImage","Hashes","IntegrityLevel"], kqlTable:"Event"},
+  {id:5, log:"Sysmon", name:"Process terminated", cat:"Process Execution", attack:["T1059"], desc:"Sysmon process end event. Combine with Event 1 to build precise process lifetime windows.", fields:["Image","ProcessGuid"], kqlTable:"Event"},
+  {id:8, log:"Sysmon", name:"CreateRemoteThread", cat:"Defense Evasion", attack:["T1055"], desc:"A process created a thread in another process — the classic process injection signal. High-fidelity when SourceImage is an unexpected process (e.g. Office app) and TargetImage is a system process.", fields:["SourceImage","TargetImage","StartAddress"], kqlTable:"Event"},
+  {id:10, log:"Sysmon", name:"ProcessAccess", cat:"Credential Access", attack:["T1003.001"], desc:"One process opened a handle to another. GrantedAccess values combined with TargetImage=lsass.exe are the top signal for credential dumping tools (Mimikatz and similar).", fields:["SourceImage","TargetImage","GrantedAccess","CallTrace"], kqlTable:"Event"},
+  {id:25, log:"Sysmon", name:"ProcessTampering", cat:"Defense Evasion", attack:["T1055.012"], desc:"Detects process hollowing / herpaderping indicators — image change type on a running process. Strong, low-noise signal when it fires.", fields:["Image","Type"], kqlTable:"Event"},
+
+  // ---- POWERSHELL ----
+  {id:4103, log:"PowerShell", name:"Module logging", cat:"PowerShell", attack:["T1059.001"], desc:"Logs pipeline execution details for loaded PowerShell modules. Good for confirming which cmdlets ran even when script block logging is disabled.", fields:["ContextInfo","Payload"], kqlTable:"Event"},
+  {id:4104, log:"PowerShell", name:"Script block logging", cat:"PowerShell", attack:["T1059.001"], desc:"Captures the full de-obfuscated script block text — the single highest-value PowerShell event for hunting. Filter on ScriptBlockText for encoded commands, Invoke-Expression, download cradles.", fields:["ScriptBlockText","ScriptBlockId","Path"], kqlTable:"Event"},
+  {id:4105, log:"PowerShell", name:"Script block execution start", cat:"PowerShell", attack:["T1059.001"], desc:"Marks the start of a logged script block's execution; use alongside 4104 to timeline execution.", fields:["ScriptBlockId"], kqlTable:"Event"},
+  {id:4106, log:"PowerShell", name:"Script block execution stop", cat:"PowerShell", attack:["T1059.001"], desc:"Marks completion of a script block. Pair start/stop pairs to measure execution duration for long-running or hung scripts.", fields:["ScriptBlockId"], kqlTable:"Event"},
+  {id:400, log:"PowerShell", name:"Engine state changed (started)", cat:"PowerShell", attack:["T1059.001"], desc:"PowerShell host/engine start event from the classic Windows PowerShell log. Records the hosting application (powershell.exe, powershell_ise.exe, or an unusual host process — a red flag).", fields:["HostApplication","EngineVersion"], kqlTable:"Event"},
+  {id:403, log:"PowerShell", name:"Engine state changed (stopped)", cat:"PowerShell", attack:["T1059.001"], desc:"PowerShell engine stop — pairs with 400 for session duration in environments without script block logging enabled.", fields:["HostApplication"], kqlTable:"Event"},
+
+  // ---- PERSISTENCE: SERVICES / SCHEDULED TASKS / WMI ----
+  {id:7045, log:"System", name:"A service was installed in the system", cat:"Persistence", attack:["T1543.003"], desc:"New service installation — extremely common persistence and lateral movement mechanism (PsExec-style). Inspect ImagePath for suspicious binaries, unusual install paths, or encoded launchers.", fields:["ServiceName","ImagePath","ServiceType","StartType"], kqlTable:"Event"},
+  {id:7040, log:"System", name:"Service start type was changed", cat:"Persistence", attack:["T1543.003"], desc:"An existing service's start mode changed (e.g. Disabled to Auto). Attackers repurpose dormant legitimate services rather than creating new suspicious ones.", fields:["ServiceName","param1","param2"], kqlTable:"Event"},
+  {id:7036, log:"System", name:"Service entered running/stopped state", cat:"Persistence", attack:["T1543.003"], desc:"High-volume but useful for confirming exact activation time of a service of interest identified via 7045.", fields:["ServiceName","State"], kqlTable:"Event"},
+  {id:106, log:"TaskScheduler", name:"Scheduled task registered", cat:"Persistence", attack:["T1053.005"], desc:"New scheduled task creation via Task Scheduler operational log. Check the task action/command and the registering user; classic persistence and execution-as-SYSTEM technique.", fields:["TaskName","UserContext"], kqlTable:"Event"},
+  {id:140, log:"TaskScheduler", name:"Scheduled task updated", cat:"Persistence", attack:["T1053.005"], desc:"Modification of an existing scheduled task's action or trigger — attackers sometimes repurpose benign tasks rather than create new ones to blend in.", fields:["TaskName","UserContext"], kqlTable:"Event"},
+  {id:141, log:"TaskScheduler", name:"Scheduled task deleted", cat:"Defense Evasion", attack:["T1053.005","T1070"], desc:"Task deletion — during IR, watch for attacker cleanup of a persistence task right before or after use.", fields:["TaskName","UserContext"], kqlTable:"Event"},
+  {id:200, log:"TaskScheduler", name:"Scheduled task executed (action started)", cat:"Persistence", attack:["T1053.005"], desc:"Confirms the exact moment a scheduled task's action fired — pair with 106 to establish creation-to-execution timelines.", fields:["TaskName","ActionName"], kqlTable:"Event"},
+  {id:5857, log:"WMI-Activity", name:"WMI provider started", cat:"WMI", attack:["T1047"], desc:"A WMI provider hosting process started to service a query or method call. Useful to correlate WMI-based execution or reconnaissance activity to a time window.", fields:["ProviderName","HostProcess"], kqlTable:"Event"},
+  {id:5860, log:"WMI-Activity", name:"WMI temporary event consumer registered", cat:"Persistence", attack:["T1546.003"], desc:"Temporary (non-persistent across reboot) WMI event consumer registration — used for in-memory tradecraft during an active session.", fields:["Consumer","Query"], kqlTable:"Event"},
+  {id:5861, log:"WMI-Activity", name:"WMI permanent event consumer registered", cat:"Persistence", attack:["T1546.003"], desc:"Permanent WMI event subscription (filter/consumer/binding) — one of the stealthiest and most durable Windows persistence mechanisms. High-priority alert.", fields:["Consumer","Filter","Binding"], kqlTable:"Event"},
+
+  // ---- REGISTRY / FILES / OBJECT ACCESS (Sysmon + Security) ----
+  {id:12, log:"Sysmon", name:"RegistryEvent (Object create/delete)", cat:"Persistence", attack:["T1112"], desc:"Registry key created or deleted. Watch Run/RunOnce keys, service keys, and IFEO (Image File Execution Options) for persistence and defense evasion.", fields:["TargetObject","EventType","Image"], kqlTable:"Event"},
+  {id:13, log:"Sysmon", name:"RegistryEvent (Value Set)", cat:"Persistence", attack:["T1112"], desc:"Registry value modified — the most common Sysmon persistence detection surface. Alert on writes to Run keys, Winlogon Shell/Userinit, or security-tool-disabling values.", fields:["TargetObject","Details","Image"], kqlTable:"Event"},
+  {id:14, log:"Sysmon", name:"RegistryEvent (Key/Value Rename)", cat:"Defense Evasion", attack:["T1112","T1070"], desc:"Registry key or value renamed — occasionally used to hide or stage persistence keys under an innocuous name before final write.", fields:["TargetObject","NewName"], kqlTable:"Event"},
+  {id:11, log:"Sysmon", name:"FileCreate", cat:"Execution", attack:["T1105"], desc:"File written or overwritten. High-volume but essential for tracing dropped payloads, staged tools, or archive files in temp/download directories.", fields:["TargetFilename","Image"], kqlTable:"Event"},
+  {id:23, log:"Sysmon", name:"FileDelete (archived)", cat:"Defense Evasion", attack:["T1070.004"], desc:"File deletion with the deleted file archived by Sysmon (if configured). Key event for anti-forensic cleanup detection, especially deletion of log files or tools shortly after use.", fields:["TargetFilename","Image"], kqlTable:"Event"},
+  {id:15, log:"Sysmon", name:"FileCreateStreamHash", cat:"Defense Evasion", attack:["T1564.004"], desc:"File written with an alternate data stream, and includes the Mark-of-the-Web zone identifier. Prime signal for downloaded/staged payloads and ADS-based hiding.", fields:["TargetFilename","Hash"], kqlTable:"Event"},
+  {id:4663, log:"Security", name:"An attempt was made to access an object", cat:"Object Access", attack:["T1005"], desc:"Granular file/registry/object access event (requires object-level SACL). Used for monitoring access to sensitive files (e.g. NTDS.dit, SAM hive, staged exfil data).", fields:["ObjectName","ProcessName","AccessMask"], kqlTable:"SecurityEvent"},
+  {id:4657, log:"Security", name:"A registry value was modified", cat:"Persistence", attack:["T1112","T1562.001"], desc:"Native registry modification audit event (requires SACL on the key). Complements Sysmon 13 in environments without Sysmon deployed; when TargetObject points at Defender/EDR configuration keys, this is a tamper signal rather than routine persistence.", fields:["ObjectName","NewValue","ProcessName"], kqlTable:"SecurityEvent"},
+  {id:4670, log:"Security", name:"Permissions on an object were changed", cat:"Defense Evasion", attack:["T1222"], desc:"ACL/permission change on a file, registry key, or AD object — used both for legitimate admin work and for attackers weakening permissions to plant persistence or exfil data.", fields:["ObjectName","SubjectUserName"], kqlTable:"SecurityEvent"},
+
+  // ---- NETWORK / LATERAL MOVEMENT ----
+  {id:3, log:"Sysmon", name:"Network connection", cat:"Network", attack:["T1071"], desc:"Process-attributed network connection (requires network monitoring config). Core event for C2 beaconing detection — pivot on Image + DestinationIp + DestinationPort combinations that repeat at regular intervals.", fields:["Image","DestinationIp","DestinationPort","Initiated"], kqlTable:"Event"},
+  {id:22, log:"Sysmon", name:"DNSEvent (DNS query)", cat:"Network", attack:["T1071.004"], desc:"DNS query made by a process, including queries that fail to resolve. Excellent for detecting DGA activity, C2 domain lookups, and DNS tunneling precursors.", fields:["QueryName","QueryResults","Image"], kqlTable:"Event"},
+  {id:5140, log:"Security", name:"A network share object was accessed", cat:"Lateral Movement", attack:["T1021.002"], desc:"SMB share access. A single source rapidly enumerating many shares/hosts (share access spray) is a strong lateral movement / discovery indicator.", fields:["ShareName","IpAddress","SubjectUserName"], kqlTable:"SecurityEvent"},
+  {id:5145, log:"Security", name:"A network share object was checked to see whether client can be granted desired access", cat:"Lateral Movement", attack:["T1021.002"], desc:"Granular SMB file/pipe access check within a share — useful for pinpointing exactly which file (e.g. a named pipe used by a remote service) was accessed during lateral movement.", fields:["ShareName","RelativeTargetName","IpAddress"], kqlTable:"SecurityEvent"},
+  {id:5156, log:"Security", name:"The Windows Filtering Platform has permitted a connection", cat:"Network", attack:["T1071"], desc:"WFP-level allowed connection log — captures process, local/remote IP and port for every permitted connection. Verbose, but valuable for network forensics when Sysmon isn't deployed.", fields:["Application","SourceAddress","DestAddress","DestPort"], kqlTable:"SecurityEvent"},
+  {id:4697, log:"Security", name:"A service was installed in the system (Security log variant)", cat:"Persistence", attack:["T1543.003"], desc:"Security-log equivalent of 7045, generated when service-installation auditing is enabled — useful cross-check when the System log has been tampered with or cleared.", fields:["ServiceName","ImagePath","SubjectUserName"], kqlTable:"SecurityEvent"},
+
+  // ---- REMOTE DESKTOP / TERMINAL SERVICES ----
+  {id:21, log:"TerminalServices-LocalSessionManager", name:"Remote Desktop Services: Session logon succeeded", cat:"Remote Access", attack:["T1021.001"], desc:"RDP session logon confirmed at the session manager level — use alongside 4624 (LogonType 10) to corroborate RDP activity across logs.", fields:["User","Address"], kqlTable:"Event"},
+  {id:24, log:"TerminalServices-LocalSessionManager", name:"Remote Desktop Services: Session has been disconnected", cat:"Remote Access", attack:["T1021.001"], desc:"RDP disconnect at the session manager level, distinct from full logoff — helps timeline hijack-susceptible disconnected sessions.", fields:["User","Address"], kqlTable:"Event"},
+  {id:1149, log:"TerminalServices-RemoteConnectionManager", name:"Remote Desktop Services: User authentication succeeded", cat:"Remote Access", attack:["T1021.001"], desc:"Network-level RDP authentication success, fired before the full session is established. Good early-stage RDP access indicator, including for failed follow-through session establishment.", fields:["User","IpAddress"], kqlTable:"Event"},
+
+  // ---- DEFENSE EVASION / LOG TAMPERING ----
+  {id:1102, log:"Security", name:"The audit log was cleared", cat:"Defense Evasion", attack:["T1070.001"], desc:"Security event log cleared. One of the highest-priority alerts in Windows logging — near-universally indicates an attempt to destroy evidence and should trigger immediate escalation.", fields:["SubjectUserName"], kqlTable:"SecurityEvent"},
+  {id:104, log:"System", name:"The System log file was cleared", cat:"Defense Evasion", attack:["T1070.001"], desc:"System event log cleared — often paired with 1102 clearing of the Security log as part of anti-forensic cleanup.", fields:["Channel"], kqlTable:"Event"},
+  {id:4719, log:"Security", name:"System audit policy was changed", cat:"Defense Evasion", attack:["T1562.002"], desc:"Audit policy modification — attackers with sufficient privilege sometimes disable specific auditing categories (e.g. process creation) to blind detection before further activity.", fields:["SubjectUserName","CategoryId","AuditPolicyChanges"], kqlTable:"SecurityEvent"},
+  {id:5001, log:"Windows Defender", name:"Real-time protection configuration changed", cat:"Defense Evasion", attack:["T1562.001"], desc:"Windows Defender real-time protection state change (e.g. disabled). Common precursor step immediately before dropping malware or offensive tooling.", fields:["Product Status","User"], kqlTable:"Event"},
+  {id:1116, log:"Windows Defender", name:"Antimalware platform detected malware or other potentially unwanted software", cat:"Malware Detection", attack:["T1204"], desc:"Defender detection event — even when the follow-up remediation (1117) succeeds, treat this as the earliest available IOC timestamp for triage and scoping.", fields:["Threat Name","Path","Detection Origin","Severity"], kqlTable:"Event"},
+  {id:1117, log:"Windows Defender", name:"Antimalware platform performed an action to protect the system", cat:"Malware Detection", attack:["T1204"], desc:"Defender remediation action taken (quarantine/remove/block). Confirm the action outcome; 'allowed' or failed-remediation results need manual follow-up.", fields:["Threat Name","Action","Path"], kqlTable:"Event"},
+
+  // ---- PRIVILEGE ESCALATION / SPECIAL LOGON ----
+  {id:4964, log:"Security", name:"Special groups have been assigned to a new logon", cat:"Privilege Escalation", attack:["T1078"], desc:"Fires for logons where the account is a member of a group defined in the 'Special Groups' policy (commonly Domain/Enterprise Admins) — a tunable high-value alert for privileged logon monitoring.", fields:["SubjectUserName","GroupList"], kqlTable:"SecurityEvent"},
+  {id:4696, log:"Security", name:"A primary token was assigned to process", cat:"Privilege Escalation", attack:["T1134"], desc:"Token assignment to a process — relevant to token impersonation / theft techniques where an attacker-controlled process assumes another user's security context.", fields:["SubjectUserName","TargetUserName"], kqlTable:"SecurityEvent"},
+
+  // ---- ACCOUNT / DOMAIN TRUST ----
+  {id:4742, log:"Security", name:"A computer account was changed", cat:"Account Management", attack:["T1098"], desc:"Computer object attribute change in AD — relevant to resource-based constrained delegation abuse when the msDS-AllowedToActOnBehalfOfOtherIdentity attribute is modified.", fields:["TargetName","SubjectUserName"], kqlTable:"SecurityEvent"},
+  {id:4741, log:"Security", name:"A computer account was created", cat:"Persistence", attack:["T1098"], desc:"New computer account creation in AD. Any authenticated user can create up to 10 by default (ms-DS-MachineAccountQuota) — a common step in Kerberos relay and privilege escalation chains.", fields:["TargetName","SubjectUserName"], kqlTable:"SecurityEvent"},
+  {id:4780, log:"Security", name:"The ACL was set on accounts which are members of administrators groups", cat:"Privilege Escalation", attack:["T1098"], desc:"AdminSDHolder-related ACL propagation event. Unexpected firing outside of normal AD replication cycles warrants a look at recent privileged-group membership changes.", fields:["TargetUserName"], kqlTable:"SecurityEvent"},
+];
+
+const KQL_TABLES = ["Auto (per source)","SecurityEvent","Event"];
+
+/* ============================================================
+   PREBUILT HUNT SCENARIO BUNDLES
+   Each references {id, log} pairs that must exist in DATA above.
+   ============================================================ */
+const SCENARIOS = [
+  {
+    name: "Kerberoasting",
+    desc: "SPN service ticket requests with weak encryption, plus TGT/pre-auth context to spot the sweep.",
+    items: [{id:4769,log:"Security"},{id:4768,log:"Security"},{id:4771,log:"Security"}]
+  },
+  {
+    name: "RDP Session Hijack",
+    desc: "Logon, disconnect, and reconnect sequence across Security and Terminal Services logs.",
+    items: [{id:4624,log:"Security"},{id:4778,log:"Security"},{id:4779,log:"Security"},{id:21,log:"TerminalServices-LocalSessionManager"},{id:24,log:"TerminalServices-LocalSessionManager"},{id:1149,log:"TerminalServices-RemoteConnectionManager"}]
+  },
+  {
+    name: "Ransomware Precursor",
+    desc: "Defender tampering, new admin accounts, service installs, log clearing, mass file deletion.",
+    items: [{id:1102,log:"Security"},{id:104,log:"System"},{id:7045,log:"System"},{id:4720,log:"Security"},{id:4732,log:"Security"},{id:23,log:"Sysmon"},{id:5001,log:"Windows Defender"}]
+  },
+  {
+    name: "WMI Persistence",
+    desc: "Permanent/temporary WMI event subscriptions and the registry writes they often pair with.",
+    items: [{id:5860,log:"WMI-Activity"},{id:5861,log:"WMI-Activity"},{id:13,log:"Sysmon"},{id:12,log:"Sysmon"}]
+  },
+  {
+    name: "LSASS Credential Access",
+    desc: "Process access into LSASS plus the process creation and remote-thread context around it.",
+    items: [{id:10,log:"Sysmon"},{id:1,log:"Sysmon"},{id:8,log:"Sysmon"}]
+  },
+  {
+    name: "Log Tampering / Anti-Forensics",
+    desc: "Security and System log clears, audit policy changes, and scheduled task deletion.",
+    items: [{id:1102,log:"Security"},{id:104,log:"System"},{id:4719,log:"Security"},{id:141,log:"TaskScheduler"}]
+  },
+  {
+    name: "Brute Force / Password Spray",
+    desc: "Failed logons, lockouts, Kerberos pre-auth failures, and NTLM validation attempts.",
+    items: [{id:4625,log:"Security"},{id:4740,log:"Security"},{id:4771,log:"Security"},{id:4776,log:"Security"}]
+  },
+  {
+    name: "Privilege Escalation via Groups",
+    desc: "Additions to global/local/universal privileged groups plus the special-privilege logon signal.",
+    items: [{id:4728,log:"Security"},{id:4732,log:"Security"},{id:4756,log:"Security"},{id:4672,log:"Security"}]
+  },
+  {
+    name: "PowerShell Abuse",
+    desc: "Script block and module logging paired with engine start and Sysmon process creation for the host.",
+    items: [{id:4104,log:"PowerShell"},{id:4103,log:"PowerShell"},{id:400,log:"PowerShell"},{id:1,log:"Sysmon"}]
+  },
+  {
+    name: "Lateral Movement via SMB",
+    desc: "Explicit credential use and share/file access checks that trace PsExec-style hop patterns.",
+    items: [{id:4648,log:"Security"},{id:5140,log:"Security"},{id:5145,log:"Security"},{id:4624,log:"Security"}]
+  },
+  {
+    name: "AS-REP Roasting Sweep",
+    desc: "Pre-auth failures and NTLM fallback against accounts with Kerberos pre-authentication disabled.",
+    items: [{id:4768,log:"Security"},{id:4771,log:"Security"},{id:4776,log:"Security"}]
+  },
+  {
+    name: "Rogue Account Creation & Escalation",
+    desc: "New account created, enabled, password reset, then dropped into a privileged group — the full takeover chain.",
+    items: [{id:4720,log:"Security"},{id:4722,log:"Security"},{id:4724,log:"Security"},{id:4728,log:"Security"}]
+  },
+  {
+    name: "AD Computer Account & Delegation Abuse",
+    desc: "Machine account creation/modification paired with Kerberos ticket activity — covers RBCD-style delegation abuse.",
+    items: [{id:4741,log:"Security"},{id:4742,log:"Security"},{id:4768,log:"Security"},{id:4769,log:"Security"}]
+  },
+  {
+    name: "Process Injection & Hollowing",
+    desc: "Remote thread creation, cross-process handle access, and image-tampering signals in Sysmon.",
+    items: [{id:8,log:"Sysmon"},{id:10,log:"Sysmon"},{id:25,log:"Sysmon"}]
+  },
+  {
+    name: "C2 Beaconing & DNS Tunneling",
+    desc: "Process-attributed network connections and DNS queries for spotting regular-interval callbacks or tunneling.",
+    items: [{id:3,log:"Sysmon"},{id:22,log:"Sysmon"}]
+  },
+  {
+    name: "Malware Drop & Detonation",
+    desc: "File write, alternate-data-stream/MOTW, process creation, and Defender's own detection/remediation of the payload.",
+    items: [{id:11,log:"Sysmon"},{id:15,log:"Sysmon"},{id:1,log:"Sysmon"},{id:1116,log:"Windows Defender"},{id:1117,log:"Windows Defender"}]
+  },
+  {
+    name: "Scheduled Task Persistence Lifecycle",
+    desc: "Full task lifecycle — registered, updated, executed, deleted — to catch persistence setup through cleanup.",
+    items: [{id:106,log:"TaskScheduler"},{id:140,log:"TaskScheduler"},{id:200,log:"TaskScheduler"},{id:141,log:"TaskScheduler"}]
+  },
+  {
+    name: "PsExec-Style Service Lateral Movement",
+    desc: "Remote service install/start-type change plus the explicit-credential logon that typically precedes it.",
+    items: [{id:7045,log:"System"},{id:7040,log:"System"},{id:4697,log:"Security"},{id:4648,log:"Security"}]
+  },
+  {
+    name: "Registry-Based Persistence",
+    desc: "Registry key create/delete, value set, and rename — Run keys, IFEO, and Winlogon Shell/Userinit tampering.",
+    items: [{id:12,log:"Sysmon"},{id:13,log:"Sysmon"},{id:14,log:"Sysmon"}]
+  },
+  {
+    name: "Evidence & Artifact Destruction",
+    desc: "Account deletion, archived file deletion, and log clearing together — the cleanup phase after an operation completes.",
+    items: [{id:1102,log:"Security"},{id:4726,log:"Security"},{id:104,log:"System"},{id:23,log:"Sysmon"},{id:141,log:"TaskScheduler"}]
+  },
+  {
+    name: "NTDS.dit / Credential Database Theft",
+    desc: "Sensitive object access paired with the process and staged-file signals typical of a VSS/ntdsutil-based domain database dump.",
+    items: [{id:4663,log:"Security"},{id:1,log:"Sysmon"},{id:11,log:"Sysmon"}]
+  },
+  {
+    name: "Token Theft & Impersonation",
+    desc: "Primary token assignment and special-privilege logon alongside cross-process access — the signature of token stealing for privilege escalation.",
+    items: [{id:4696,log:"Security"},{id:4672,log:"Security"},{id:10,log:"Sysmon"}]
+  },
+  {
+    name: "AdminSDHolder & ACL Tampering",
+    desc: "Group scope/property changes and admin-group ACL propagation together with object permission changes — a quieter path to standing privilege than group membership alone.",
+    items: [{id:4735,log:"Security"},{id:4780,log:"Security"},{id:4670,log:"Security"}]
+  },
+  {
+    name: "Kerberoasting via SPN Injection",
+    desc: "An account attribute change (SPN added) immediately followed by a service ticket request against it — Kerberoasting against a target the attacker just made roastable.",
+    items: [{id:4738,log:"Security"},{id:4769,log:"Security"}]
+  },
+  {
+    name: "Sensitive File & Registry Access",
+    desc: "Object access and registry value modification together, for tracking touches to files or keys under a SACL — data staging or config tampering.",
+    items: [{id:4663,log:"Security"},{id:4657,log:"Security"},{id:4670,log:"Security"}]
+  },
+  {
+    name: "Network Baseline (No Sysmon)",
+    desc: "Native WFP connection logging as a Sysmon-network-connection substitute, for environments where Sysmon isn't deployed.",
+    items: [{id:5156,log:"Security"},{id:3,log:"Sysmon"},{id:22,log:"Sysmon"}]
+  },
+  {
+    name: "Session Lifecycle Timeline",
+    desc: "Logon, user-initiated logoff, system logoff, and process exit together — builds a precise session and dwell-time timeline.",
+    items: [{id:4624,log:"Security"},{id:4634,log:"Security"},{id:4647,log:"Security"},{id:4689,log:"Security"}]
+  },
+  {
+    name: "Lockout / Reset Abuse",
+    desc: "A lockout, unlock, and password reset in quick succession — a pattern worth checking against help-desk social engineering or account-takeover attempts.",
+    items: [{id:4740,log:"Security"},{id:4767,log:"Security"},{id:4724,log:"Security"}]
+  },
+  {
+    name: "PowerShell Session Timeline",
+    desc: "Full engine start/stop plus script block start/stop and content, for reconstructing the exact window and contents of one suspicious PowerShell session.",
+    items: [{id:400,log:"PowerShell"},{id:403,log:"PowerShell"},{id:4105,log:"PowerShell"},{id:4106,log:"PowerShell"},{id:4104,log:"PowerShell"}]
+  },
+  {
+    name: "Process Lifecycle (No Sysmon)",
+    desc: "Native process creation, exit, and object access — an approximation of Sysmon execution coverage for environments running Security auditing only.",
+    items: [{id:4688,log:"Security"},{id:4689,log:"Security"},{id:4663,log:"Security"}]
+  },
+];
+
+/* ---------- state ---------- */
+let selected = new Set();
+let activeCats = new Set();
+let logOptions = [...new Set(DATA.map(d=>d.log))].sort();
+
+/* ---------- init ---------- */
+function init(){
+  document.getElementById('totalCount').textContent = DATA.length;
+  document.getElementById('evtCountMeta').textContent = DATA.length;
+
+  const logSel = document.getElementById('logFilter');
+  logOptions.forEach(l=>{
+    const o = document.createElement('option');
+    o.value = l; o.textContent = l;
+    logSel.appendChild(o);
+  });
+
+  const cats = [...new Set(DATA.map(d=>d.cat))].sort();
+  const chipWrap = document.getElementById('catChips');
+  cats.forEach(c=>{
+    const chip = document.createElement('div');
+    chip.className = 'chip';
+    chip.textContent = c;
+    chip.onclick = ()=>{
+      if(activeCats.has(c)){ activeCats.delete(c); chip.classList.remove('active'); }
+      else { activeCats.add(c); chip.classList.add('active'); }
+      render();
+    };
+    chip.dataset.cat = c;
+    chipWrap.appendChild(chip);
+  });
+
+  document.getElementById('searchBox').addEventListener('input', render);
+  document.getElementById('logFilter').addEventListener('change', render);
+  document.getElementById('resetFilters').addEventListener('click', ()=>{
+    document.getElementById('searchBox').value='';
+    document.getElementById('logFilter').value='';
+    activeCats.clear();
+    document.querySelectorAll('.chip').forEach(c=>c.classList.remove('active'));
+    render();
+  });
+  document.getElementById('selectAllVisible').addEventListener('click', ()=>{
+    getFiltered().forEach(d=>selected.add(d.id+'|'+d.log));
+    render();
+  });
+
+  render();
+}
+
+function scenarioKeySet(scenario){
+  return new Set(scenario.items.map(it=>it.id+'|'+it.log));
+}
+
+function isScenarioActive(scenario){
+  const keys = scenarioKeySet(scenario);
+  if(keys.size !== selected.size) return false;
+  for(const k of keys){ if(!selected.has(k)) return false; }
+  return true;
+}
+
+function renderScenarios(){
+  const grid = document.getElementById('scenarioGrid');
+  grid.innerHTML = '';
+  SCENARIOS.forEach(sc=>{
+    const missing = sc.items.filter(it=>!DATA.some(d=>d.id===it.id && d.log===it.log));
+    if(missing.length) return; // skip malformed bundle rather than break the UI
+    const card = document.createElement('div');
+    card.className = 'scenario-card' + (isScenarioActive(sc) ? ' active' : '');
+    card.innerHTML = `
+      <div class="stitle">${escapeHtml(sc.name)}</div>
+      <div class="sdesc">${escapeHtml(sc.desc)}</div>
+      <div class="sids">${sc.items.length} events &middot; ${sc.items.map(it=>it.id).join(', ')}</div>
+    `;
+    card.addEventListener('click', ()=>applyScenario(sc));
+    grid.appendChild(card);
+  });
+}
+
+function applyScenario(scenario){
+  const alreadyActive = isScenarioActive(scenario);
+  selected = alreadyActive ? new Set() : scenarioKeySet(scenario);
+  render();
+  if(!alreadyActive){
+    document.getElementById('builder').scrollIntoView({behavior:'smooth', block:'start'});
+    showToast('Loaded scenario: ' + scenario.name);
+  }
+}
+
+function getFiltered(){
+  const q = document.getElementById('searchBox').value.trim().toLowerCase();
+  const logF = document.getElementById('logFilter').value;
+  return DATA.filter(d=>{
+    if(logF && d.log !== logF) return false;
+    if(activeCats.size && !activeCats.has(d.cat)) return false;
+    if(!q) return true;
+    const hay = (d.id+' '+d.name+' '+d.log+' '+d.cat+' '+d.desc+' '+d.attack.join(' ')+' '+d.fields.join(' ')).toLowerCase();
+    return hay.includes(q);
+  });
+}
+
+function render(){
+  const list = getFiltered();
+  document.getElementById('shownCount').textContent = list.length;
+  document.getElementById('selCountRow').textContent = selected.size;
+  renderScenarios();
+
+  const grid = document.getElementById('cardGrid');
+  grid.innerHTML = '';
+  list.forEach(d=>{
+    const key = d.id+'|'+d.log;
+    const card = document.createElement('div');
+    card.className = 'card' + (selected.has(key) ? ' selected' : '');
+    card.innerHTML = `
+      <div class="card-head" data-key="${key}">
+        <input type="checkbox" class="cb" ${selected.has(key)?'checked':''} data-select="${key}">
+        <div class="evtid">${d.id}</div>
+        <div class="card-title">
+          <div class="name">${escapeHtml(d.name)}</div>
+          <div class="logsrc">${d.log} log</div>
+        </div>
+        <div class="tags">
+          <span class="tag-pill cat">${d.cat}</span>
+          ${d.attack.map(a=>`<span class="tag-pill attack">${a}</span>`).join('')}
+        </div>
+        <div class="caret">&#9656;</div>
+      </div>
+      <div class="card-body">
+        <div class="desc">${escapeHtml(d.desc)}</div>
+        <div class="fieldrow">${d.fields.map(f=>`<span class="fld">${escapeHtml(f)}</span>`).join('')}</div>
+        <div class="querybox">
+          <div class="qlabel">Quick SPL</div>
+          <pre>${escapeHtml(buildSpl([d]))}</pre>
+        </div>
+        <div class="querybox" style="margin-top:8px;">
+          <div class="qlabel">Quick KQL (${d.kqlTable})</div>
+          <pre>${escapeHtml(buildKqlSingle(d))}</pre>
+        </div>
+      </div>
+    `;
+    const head = card.querySelector('.card-head');
+    head.addEventListener('click', (e)=>{
+      if(e.target.classList.contains('cb')) return;
+      card.classList.toggle('open');
+    });
+    card.querySelector('.cb').addEventListener('click', (e)=>{
+      e.stopPropagation();
+      const k = e.target.dataset.select;
+      if(e.target.checked) selected.add(k); else selected.delete(k);
+      card.classList.toggle('selected', e.target.checked);
+      renderBuilder();
+      document.getElementById('selCountRow').textContent = selected.size;
+    });
+    grid.appendChild(card);
+  });
+
+  renderBuilder();
+}
+
+function getSelectedData(){
+  return [...selected].map(k=>{
+    const [id, log] = k.split('|');
+    return DATA.find(d=>String(d.id)===id && d.log===log);
+  }).filter(Boolean);
+}
+
+function buildSpl(items){
+  if(!items.length) return '';
+  const ids = [...new Set(items.map(d=>d.id))];
+  const logs = [...new Set(items.map(d=>d.log))];
+  const allFields = [...new Set(items.flatMap(d=>d.fields))];
+  return `index=* (source="WinEventLog:Security" OR source="WinEventLog:System" OR source="XmlWinEventLog:Microsoft-Windows-Sysmon/Operational" OR source="WinEventLog:Microsoft-Windows-PowerShell/Operational")
+EventCode IN (${ids.join(', ')})
+| eval src_log="${logs.join(' / ')}"
+| table _time, ComputerName, EventCode, ${allFields.slice(0,6).join(', ')}
+| sort -_time`;
+}
+
+function buildKqlSingle(d){
+  return `${d.kqlTable}
+| where EventID == ${d.id}
+| project TimeGenerated, Computer, EventID, ${d.fields.slice(0,5).join(', ')}
+| sort by TimeGenerated desc`;
+}
+
+function buildKql(items){
+  if(!items.length) return '';
+  const mode = document.querySelector('input[name=kqltable]:checked')?.value || 'auto';
+  const ids = [...new Set(items.map(d=>d.id))];
+  const allFields = [...new Set(items.flatMap(d=>d.fields))].slice(0,8);
+
+  if(mode !== 'auto'){
+    return `${mode}
+| where EventID in (${ids.join(', ')})
+| project TimeGenerated, Computer, EventID, ${allFields.join(', ')}
+| sort by TimeGenerated desc`;
+  }
+
+  const byTable = {};
+  items.forEach(d=>{ (byTable[d.kqlTable] = byTable[d.kqlTable] || new Set()).add(d.id); });
+  const tables = Object.keys(byTable);
+
+  if(tables.length === 1){
+    const table = tables[0];
+    const idList = [...byTable[table]].join(', ');
+    return `${table}\n| where EventID in (${idList})\n| project TimeGenerated, Computer, EventID, ${allFields.join(', ')}\n| sort by TimeGenerated desc`;
+  }
+
+  const branches = tables.map(table=>{
+    const idList = [...byTable[table]].join(', ');
+    return `(${table}\n    | where EventID in (${idList})\n    | project TimeGenerated, Computer, EventID, ${allFields.join(', ')})`;
+  });
+  return `union\n  ${branches.join(',\n  ')}\n| sort by TimeGenerated desc`;
+}
+
+function buildElastic(items){
+  if(!items.length) return '';
+  const ids = [...new Set(items.map(d=>d.id))];
+  return `event.code: (${ids.join(' OR ')}) and
+  (winlog.channel: "Security" or winlog.channel: "System" or
+   winlog.channel: "Microsoft-Windows-Sysmon/Operational" or
+   winlog.channel: "Microsoft-Windows-PowerShell/Operational")`;
+}
+
+function buildTanium(items){
+  if(!items.length) return '';
+  const ids = [...new Set(items.map(d=>d.id))];
+  return `Get Windows Event Logs[Security, System, Sysmon, PowerShell] with Event ID matches regex:"^(${ids.join('|')})$" from all machines`;
+}
+
+function renderBuilder(){
+  const data = getSelectedData();
+  document.getElementById('builderCount').textContent = data.length + ' selected';
+  document.getElementById('builderEmpty').style.display = data.length ? 'none' : 'block';
+  document.getElementById('builderOutput').style.display = data.length ? 'block' : 'none';
+
+  const idsWrap = document.getElementById('selectedIds');
+  idsWrap.innerHTML = data.map(d=>`
+    <span class="sid">${d.id} &middot; ${escapeHtml(d.name.slice(0,26))}${d.name.length>26?'...':''}
+      <button data-remove="${d.id}|${d.log}">&times;</button>
+    </span>`).join('');
+  idsWrap.querySelectorAll('[data-remove]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      selected.delete(btn.dataset.remove);
+      render();
+    });
+  });
+
+  if(data.length){
+    document.getElementById('splOut').textContent = buildSpl(data);
+    document.getElementById('kqlOut').textContent = buildKql(data);
+    document.getElementById('elasticOut').textContent = buildElastic(data);
+    document.getElementById('taniumOut').textContent = buildTanium(data);
+  }
+}
+
+document.addEventListener('change', (e)=>{
+  if(e.target.name === 'kqltable') renderBuilder();
+});
+
+function clearSelection(){
+  selected.clear();
+  render();
+}
+
+function exportSelected(fmt){
+  const data = getSelectedData();
+  if(!data.length) return;
+  let content, filename, mime;
+  if(fmt === 'json'){
+    content = JSON.stringify({
+      generated: new Date().toISOString(),
+      tool: "Winlog Huntbook",
+      selection: data,
+      queries: {
+        spl: buildSpl(data),
+        kql: buildKql(data),
+        elastic: buildElastic(data),
+        tanium: buildTanium(data)
+      }
+    }, null, 2);
+    filename = 'winlog-huntbook-selection.json';
+    mime = 'application/json';
+  } else {
+    let md = `# Winlog Huntbook — Selection\n\nGenerated: ${new Date().toISOString()}\n\n`;
+    data.forEach(d=>{
+      md += `## ${d.id} — ${d.name}\n\n- **Log source:** ${d.log}\n- **Category:** ${d.cat}\n- **ATT&CK:** ${d.attack.join(', ')}\n- **Key fields:** ${d.fields.join(', ')}\n\n${d.desc}\n\n`;
+    });
+    md += `## Combined Queries\n\n### Splunk SPL\n\`\`\`\n${buildSpl(data)}\n\`\`\`\n\n### KQL\n\`\`\`\n${buildKql(data)}\n\`\`\`\n\n### Elastic\n\`\`\`\n${buildElastic(data)}\n\`\`\`\n\n### Tanium\n\`\`\`\n${buildTanium(data)}\n\`\`\`\n`;
+    content = md;
+    filename = 'winlog-huntbook-selection.md';
+    mime = 'text/markdown';
+  }
+  const blob = new Blob([content], {type: mime});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast('Exported ' + filename);
+}
+
+function copyText(elId){
+  const text = document.getElementById(elId).textContent;
+  navigator.clipboard.writeText(text).then(()=>showToast('Copied to clipboard'));
+}
+
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(window.__toastTimer);
+  window.__toastTimer = setTimeout(()=>t.classList.remove('show'), 1800);
+}
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+
+init();
+</script>
+</body>
+</html>
